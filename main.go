@@ -173,6 +173,29 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(path.Join("files", target_folder_name, target_filename)))
 			return
 		}
+		const proxy = "/proxy/"
+		if strings.HasPrefix(r.URL.Path, proxy) {
+			proxy_reference := path.Clean(r.URL.Path[len(proxy):])
+			idx := strings.IndexByte(proxy_reference, '/')
+			if idx == -1 {
+				w.WriteHeader(400)
+				w.Write([]byte("400 Bad Request"))
+				return
+			}
+			r.URL.Scheme = proxy_reference[:idx]
+			proxy_reference = proxy_reference[idx+1:]
+			idx = strings.IndexByte(proxy_reference, '/')
+			if idx == -1 {
+				r.URL.Host = proxy_reference
+				r.URL.Path = "/"
+			} else {
+				r.URL.Host = proxy_reference[:idx]
+				r.URL.Path = proxy_reference[idx+1:]
+			}
+			r.Host = r.URL.Host
+			h.HandleProxyRequest(w, r)
+			return
+		}
 
 		w.WriteHeader(418)
 		w.Write([]byte("418 I'm a teapot"))
