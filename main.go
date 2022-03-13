@@ -108,52 +108,7 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		proxy_file_safe_host := regexp.MustCompile("[^a-zA-Z0-9.]+").ReplaceAllString(r.Host, "_")
-		proxy_file_path := path.Clean("/" + r.URL.Path)
-		if strings.HasSuffix(proxy_file_path, "/") {
-			proxy_file_path += "___SLASH___"
-		}
-		proxy_file_reference := path.Join(proxy_file_safe_host, proxy_file_path)
-		target_path := path.Join(StoragePath, "files", proxy_file_reference)
-
-		_, err := os.Stat(target_path)
-		if errors.Is(err, os.ErrNotExist) {
-			log.Println("PROXY DOWNLOAD", proxy_file_reference, "<=", r.URL)
-			err = os.MkdirAll(path.Dir(target_path), 0700)
-			if err != nil {
-				w.WriteHeader(500)
-				w.Write([]byte(fmt.Sprintf("500 Cannot mkdir: %v", err)))
-				return
-			}
-
-			source, err := http.Get(r.URL.String())
-			if err != nil {
-				w.WriteHeader(500)
-				w.Write([]byte(fmt.Sprintf("500 Cannot download your file: %v", err)))
-				return
-			}
-			defer source.Body.Close()
-
-			target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
-			if err != nil {
-				w.WriteHeader(500)
-				w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
-				return
-			}
-			defer target_writer.Close()
-
-			_, err = io.Copy(target_writer, source.Body)
-			if err != nil {
-				w.WriteHeader(500)
-				w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
-				return
-			}
-		}
-
-		r.URL.Host = "127.0.0.1"
-		r.URL.Path = proxy_file_reference
-		log.Println("PROXY FILE", r.URL.Path)
-		StaticFileServer.ServeHTTP(w, r)
+		h.HandleProxyRequest(w, r)
 		return
 	} else {
 		// we're in webserver mode
@@ -222,6 +177,56 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(418)
 		w.Write([]byte("418 I'm a teapot"))
 	}
+}
+
+func (h HttpsHandler) HandleProxyRequest(w http.ResponseWriter, r *http.Request) {
+	proxy_file_safe_host := regexp.MustCompile("[^a-zA-Z0-9.]+").ReplaceAllString(r.Host, "_")
+	proxy_file_path := path.Clean("/" + r.URL.Path)
+	if strings.HasSuffix(proxy_file_path, "/") {
+		proxy_file_path += "___SLASH___"
+	}
+	proxy_file_reference := path.Join(proxy_file_safe_host, proxy_file_path)
+	target_path := path.Join(StoragePath, "files", proxy_file_reference)
+
+	_, err := os.Stat(target_path)
+	if errors.Is(err, os.ErrNotExist) {
+		log.Println("PROXY DOWNLOAD", proxy_file_reference, "<=", r.URL)
+		err = os.MkdirAll(path.Dir(target_path), 0700)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot mkdir: %v", err)))
+			return
+		}
+
+		source, err := http.Get(r.URL.String())
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot download your file: %v", err)))
+			return
+		}
+		defer source.Body.Close()
+
+		target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+			return
+		}
+		defer target_writer.Close()
+
+		_, err = io.Copy(target_writer, source.Body)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+			return
+		}
+	}
+
+	r.URL.Host = "127.0.0.1"
+	r.URL.Path = proxy_file_reference
+	log.Println("PROXY FILE", r.URL.Path)
+	StaticFileServer.ServeHTTP(w, r)
+	return
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
