@@ -7,10 +7,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/foomo/simplecert"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -100,6 +103,48 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = r.URL.Path[len(files):]
 		log.Println("STATIC FILE", r.URL.Path)
 		StaticFileServer.ServeHTTP(w, r)
+		return
+	}
+	const upload = "/upload"
+	if strings.HasPrefix(r.URL.Path, upload) {
+		if r.Method != "POST" && r.Method != "PUT" {
+			w.WriteHeader(400)
+			w.Write([]byte("400 Bad Request"))
+			return
+		}
+		upload_reader, upload_info, err := r.FormFile("file")
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot handle your upload: %v", err)))
+			return
+		}
+
+		target_folder_name := r.Header.Get("X-Folder")
+		if target_folder_name == "" {
+			target_folder_name = uuid.New().String()
+		}
+		target_folder := path.Join(StoragePath, "files", target_folder_name)
+		os.Mkdir(target_folder, 0700)
+		target_filename := upload_info.Filename
+		if target_filename == "" {
+			target_filename = uuid.New().String()
+		}
+
+		log.Println("FILE UPLOAD", path.Join(target_folder_name, target_filename))
+
+		target_path := path.Join(target_folder, target_filename)
+		target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
+		defer target_writer.Close()
+
+		_, err = io.Copy(target_writer, upload_reader)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+			return
+		}
+
+		w.WriteHeader(200)
+		w.Write([]byte(path.Join("files", target_folder_name, target_filename)))
 		return
 	}
 	w.WriteHeader(200)
