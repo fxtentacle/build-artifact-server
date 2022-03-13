@@ -175,7 +175,7 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		const proxy = "/proxy/"
 		if strings.HasPrefix(r.URL.Path, proxy) {
-			proxy_reference := path.Clean(r.URL.Path[len(proxy):])
+			proxy_reference := path.Clean("/" + r.URL.Path[len(proxy):])[1:]
 			idx := strings.IndexByte(proxy_reference, '/')
 			if idx == -1 {
 				w.WriteHeader(400)
