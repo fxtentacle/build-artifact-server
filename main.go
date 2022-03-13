@@ -45,6 +45,8 @@ func main() {
 
 type HttpToHttpsRedirectHandler struct{}
 
+var StaticFileServer http.Handler
+
 func (h HttpToHttpsRedirectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	target := "https://" + r.Host + r.URL.Path
 	if len(r.URL.RawQuery) > 0 {
@@ -57,6 +59,9 @@ type HttpsHandler struct{}
 
 func (h HttpsHandler) IsAuthorized(r *http.Request) bool {
 	auth_header := r.Header.Get("Proxy-Authorization")
+	if auth_header == "" {
+		auth_header = r.Header.Get("Authorization")
+	}
 	if auth_header == "" {
 		return false
 	}
@@ -86,6 +91,15 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !h.IsAuthorized(r) {
 		w.Header().Add("Proxy-Authenticate", "Basic")
 		w.WriteHeader(407)
+		w.Write([]byte("407 Proxy Authentication Required"))
+		return
+	}
+
+	const files = "/files/"
+	if strings.HasPrefix(r.URL.Path, files) {
+		r.URL.Path = r.URL.Path[len(files):]
+		log.Println("STATIC FILE", r.URL.Path)
+		StaticFileServer.ServeHTTP(w, r)
 		return
 	}
 	w.WriteHeader(200)
@@ -96,6 +110,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if Domains == "" || (EMail == "" && !SelfSignedCertificate) || Username == "" || Password == "" || StoragePath == "" {
 		return cmd.Usage()
 	}
+
+	StaticFileServer = http.FileServer(http.Dir(filepath.Join(StoragePath, "files")))
+
 	for {
 		log.Println("Acquiring SSL certificate ...")
 
