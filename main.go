@@ -11,16 +11,18 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 var (
-	Domains     string
-	EMail       string
-	Username    string
-	Password    string
-	StoragePath string
+	Domains               string
+	EMail                 string
+	Username              string
+	Password              string
+	StoragePath           string
+	SelfSignedCertificate bool
 )
 
 func main() {
@@ -34,6 +36,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&Username, "username", "u", "", "http basic auth username")
 	rootCmd.PersistentFlags().StringVarP(&Password, "password", "p", "", "http basic auth password")
 	rootCmd.PersistentFlags().StringVarP(&StoragePath, "storage-path", "s", "", "path to data storage folder")
+	rootCmd.PersistentFlags().BoolVar(&SelfSignedCertificate, "self-signed-certificate", false, "create self-signed certificate with mkcert instead of using letsencrypt")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -90,7 +93,7 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	if Domains == "" || EMail == "" || Username == "" || Password == "" {
+	if Domains == "" || (EMail == "" && !SelfSignedCertificate) || Username == "" || Password == "" || StoragePath == "" {
 		return cmd.Usage()
 	}
 	for {
@@ -105,10 +108,10 @@ func runServer(cmd *cobra.Command, args []string) error {
 			TLSAddress:           ":443",
 			CacheDirPerm:         0700,
 			Domains:              strings.Split(Domains, ","),
-			CacheDir:             "letsencrypt",
+			CacheDir:             filepath.Join(StoragePath, "ssl-certificates"),
 			DNSProvider:          "",
-			Local:                false,
-			UpdateHosts:          true,
+			Local:                SelfSignedCertificate,
+			UpdateHosts:          false,
 			DNSServers:           []string{},
 			WillRenewCertificate: func() {},
 			DidRenewCertificate:  func() {},
@@ -163,12 +166,12 @@ func runServer(cmd *cobra.Command, args []string) error {
 		should_restart_for_certificate_renewal_at := current_certificate.NotAfter.Add(-16 * 24 * time.Hour)
 
 		go func() {
-			if err := http_server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := http_server.ListenAndServe(); err != http.ErrServerClosed {
 				log.Fatalf("HTTP ListenAndServe FAILED: %w", err)
 			}
 		}()
 		go func() {
-			if err := https_server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			if err := https_server.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
 				log.Fatalf("HTTPS ListenAndServeTLS FAILED: %w", err)
 			}
 		}()
