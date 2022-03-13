@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"github.com/foomo/simplecert"
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -98,6 +100,63 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Header.Get("Proxy-Authorization") != "" {
+		// we're in HTTP proxy mode
+		if r.Method != "GET" {
+			w.WriteHeader(400)
+			w.Write([]byte("400 Bad Request"))
+			return
+		}
+
+		proxy_file_safe_host := regexp.MustCompile("[^a-zA-Z0-9.]+").ReplaceAllString(r.Host, "_")
+		proxy_file_path := path.Clean("/" + r.URL.Path)
+		if strings.HasSuffix(proxy_file_path, "/") {
+			proxy_file_path += "___SLASH___"
+		}
+		proxy_file_reference := path.Join(proxy_file_safe_host, proxy_file_path)
+		target_path := path.Join(StoragePath, "files", proxy_file_reference)
+
+		_, err := os.Stat(target_path)
+		if errors.Is(err, os.ErrNotExist) {
+			log.Println("PROXY DOWNLOAD", proxy_file_reference, "<=", r.URL)
+			err = os.MkdirAll(path.Dir(target_path), 0700)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(fmt.Sprintf("500 Cannot mkdir: %v", err)))
+				return
+			}
+
+			source, err := http.Get(r.URL.String())
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(fmt.Sprintf("500 Cannot download your file: %v", err)))
+				return
+			}
+			defer source.Body.Close()
+
+			target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+				return
+			}
+			defer target_writer.Close()
+
+			_, err = io.Copy(target_writer, source.Body)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+				return
+			}
+		}
+
+		r.URL.Host = "127.0.0.1"
+		r.URL.Path = proxy_file_reference
+		log.Println("PROXY FILE", r.URL.Path)
+		StaticFileServer.ServeHTTP(w, r)
+		return
+	}
+
 	const files = "/files/"
 	if strings.HasPrefix(r.URL.Path, files) {
 		r.URL.Path = r.URL.Path[len(files):]
@@ -134,6 +193,11 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		target_path := path.Join(target_folder, target_filename)
 		target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))
+			return
+		}
 		defer target_writer.Close()
 
 		_, err = io.Copy(target_writer, upload_reader)
@@ -147,8 +211,9 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(path.Join("files", target_folder_name, target_filename)))
 		return
 	}
-	w.WriteHeader(200)
-	w.Write([]byte("Hello!"))
+
+	w.WriteHeader(418)
+	w.Write([]byte("418 I'm a teapot"))
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
