@@ -140,7 +140,10 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			target_folder_name := r.Header.Get("X-Folder")
+			target_folder_name := path.Clean("/" + r.URL.Path[len(files):])[1:]
+			if target_folder_name == "" {
+				target_folder_name = r.Header.Get("X-Folder")
+			}
 			if target_folder_name == "" {
 				target_folder_name = uuid.New().String()
 			}
@@ -154,7 +157,7 @@ func (h HttpsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Println("FILE UPLOAD", path.Join(target_folder_name, target_filename))
 
 			target_path := path.Join(target_folder, target_filename)
-			target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE, 0600)
+			target_writer, err := os.OpenFile(target_path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 			if err != nil {
 				w.WriteHeader(500)
 				w.Write([]byte(fmt.Sprintf("500 Cannot write your file: %v", err)))

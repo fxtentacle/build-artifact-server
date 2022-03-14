@@ -1,4 +1,5 @@
 curl -v -k -u user:pass -F file=@tests.txt -H "X-Folder: d8088b03-f6fa-4954-80ae-867ca8482410" "https://127.0.0.1/upload"
+curl -v -k -u user:pass -F file=@tests.txt "https://127.0.0.1/upload/d8088b03-f6fa-4954-80ae-867ca8482410"
 curl -v -k -u user:pass "https://127.0.0.1/files/d8088b03-f6fa-4954-80ae-867ca8482410/tests.txt"
 curl -v --proxy-insecure -x "https://user:pass@127.0.0.1/" "http://example.com/"
 curl -v -k -u user:pass "https://127.0.0.1/proxy/https/example.com"
